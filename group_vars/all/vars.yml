@@ -1,0 +1,45 @@
+---
+deploy_user: app
+
+pip_install_packages:
+  - name: docker
+docker_users:
+  - "{{ deploy_user }}"
+
+redmine_domain: opsinfrapath.ru
+redmine_port: 3000
+redmine_dir: /opt/redmine
+
+redmine_db_container: redmine-postgres
+redmine_container: redmine
+redmine_db_host: "{{ hostvars[groups['dbservers'][0]].ansible_host_private | default(hostvars[groups['dbservers'][0]].ansible_host) }}"
+redmine_db_port: 5432
+redmine_db_name: redmine
+redmine_db_user: redmine
+redmine_db_password: "{{ vault_redmine_db_password }}"
+redmine_secret_key_base: "{{ vault_redmine_secret_key_base }}"
+
+datadog_api_key: "{{ vault_datadog_api_key }}"
+datadog_site: datadoghq.eu
+datadog_env: prod
+datadog_swap_file: /swapfile
+datadog_swap_size_mb: 2048
+datadog_config:
+  env: "{{ datadog_env }}"
+  tags:
+    - env:{{ datadog_env }}
+    - service:redmine
+datadog_checks:
+  http_check:
+    init_config:
+    instances:
+      - name: redmine
+        url: "http://{{ redmine_domain }}/"
+        timeout: 5
+        method: GET
+        http_response_status_code: "200"
+        content_match: Redmine
+        collect_response_time: true
+        tags:
+          - env:{{ datadog_env }}
+          - service:redmine

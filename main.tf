@@ -7,6 +7,9 @@ terraform {
     local = {
       source = "hashicorp/local"
     }
+    datadog = {
+      source = "DataDog/datadog"
+    }
   }
 
   required_version = ">= 0.13"
@@ -37,8 +40,20 @@ variable "trusted_ssh_sources" {
   default = ["0.0.0.0/0", "::/0"]
 }
 
-variable "ansible_project_path" {
-  default = "/Users/darkelv/ansible/devops-for-developers-project-76"
+variable "datadog_api_key" {
+  sensitive = true
+}
+
+variable "datadog_app_key" {
+  sensitive = true
+}
+
+variable "datadog_site" {
+  default = "datadoghq.eu"
+}
+
+variable "datadog_synthetics_location" {
+  default = "aws:eu-central-1"
 }
 
 locals {
@@ -50,6 +65,12 @@ locals {
 
 provider "digitalocean" {
   token = var.do_token
+}
+
+provider "datadog" {
+  api_key = var.datadog_api_key
+  app_key = var.datadog_app_key
+  api_url = "https://api.${var.datadog_site}/"
 }
 
 resource "digitalocean_ssh_key" "default" {
@@ -116,6 +137,46 @@ resource "digitalocean_loadbalancer" "web" {
     healthy_threshold        = 2
     unhealthy_threshold      = 3
   }
+}
+
+resource "datadog_synthetics_test" "redmine" {
+  name    = "Redmine load balancer"
+  type    = "api"
+  subtype = "http"
+  status  = "live"
+
+  locations = [var.datadog_synthetics_location]
+
+  request_definition {
+    method = "GET"
+    url    = "http://${digitalocean_loadbalancer.web.ip}/"
+  }
+
+  assertion {
+    type     = "statusCode"
+    operator = "is"
+    target   = "200"
+  }
+
+  assertion {
+    type     = "body"
+    operator = "contains"
+    target   = "Redmine"
+  }
+
+  options_list {
+    tick_every           = 60
+    min_location_failed  = 1
+    min_failure_duration = 60
+  }
+
+  message = "Redmine is unavailable through the DigitalOcean Load Balancer."
+
+  tags = [
+    "env:prod",
+    "service:redmine",
+    "managed_by:terraform"
+  ]
 }
 
 resource "digitalocean_firewall" "web" {
@@ -200,7 +261,7 @@ resource "digitalocean_firewall" "db" {
 }
 
 resource "local_file" "ansible_inventory" {
-  filename        = "${var.ansible_project_path}/inventory.ini"
+  filename        = "${path.module}/inventory.ini"
   file_permission = "0644"
 
   content = <<-EOF

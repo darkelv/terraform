@@ -1,0 +1,9 @@
+---
+roles:
+  - src: geerlingguy.pip
+  - src: geerlingguy.docker
+
+collections:
+  - name: community.docker
+  - name: datadog.dd
+  - name: ansible.posix

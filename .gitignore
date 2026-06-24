@@ -4,3 +4,5 @@
 *.tfstate.*
 *.backup
 .idea
+.vault_password
+inventory.ini

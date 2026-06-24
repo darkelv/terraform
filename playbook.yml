@@ -1,0 +1,150 @@
+---
+- hosts: all
+  become: true
+
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [prepare, deploy, datadog]
+
+  roles:
+    - role: geerlingguy.pip
+      tags: prepare
+    - role: geerlingguy.docker
+      tags: prepare
+
+- hosts: dbservers
+  become: true
+
+  tasks:
+    - name: Create Redmine directory
+      ansible.builtin.file:
+        path: "{{ redmine_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+      tags: deploy
+
+    - name: Create PostgreSQL env file
+      ansible.builtin.template:
+        src: templates/postgres.env.j2
+        dest: "{{ redmine_dir }}/postgres.env"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0600"
+      tags: deploy
+
+    - name: Run PostgreSQL container
+      community.docker.docker_container:
+        name: "{{ redmine_db_container }}"
+        image: postgres:16
+        state: started
+        restart_policy: always
+        env_file: "{{ redmine_dir }}/postgres.env"
+        published_ports:
+          - "{{ ansible_host_private | default('0.0.0.0') }}:{{ redmine_db_port }}:5432"
+        volumes:
+          - redmine-postgres-data:/var/lib/postgresql/data
+      tags: deploy
+
+    - name: Wait for PostgreSQL
+      community.docker.docker_container_exec:
+        container: "{{ redmine_db_container }}"
+        command: "pg_isready -U {{ redmine_db_user }} -d {{ redmine_db_name }}"
+      register: postgres_ready
+      retries: 10
+      delay: 3
+      until: postgres_ready.rc == 0
+      changed_when: false
+      tags: deploy
+
+- hosts: webservers
+  become: true
+
+  tasks:
+    - name: Create Redmine directory
+      ansible.builtin.file:
+        path: "{{ redmine_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+      tags: deploy
+
+    - name: Create Redmine env file
+      ansible.builtin.template:
+        src: templates/redmine.env.j2
+        dest: "{{ redmine_dir }}/.env"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0600"
+      register: redmine_env_file
+      tags: deploy
+
+    - name: Pull Redmine Docker image
+      community.docker.docker_image:
+        name: redmine:latest
+        source: pull
+      tags: deploy
+
+    - name: Run Redmine container
+      community.docker.docker_container:
+        name: "{{ redmine_container }}"
+        image: redmine:latest
+        state: started
+        restart_policy: always
+        env_file: "{{ redmine_dir }}/.env"
+        recreate: "{{ redmine_env_file.changed }}"
+        published_ports:
+          - "{{ redmine_port }}:3000"
+        volumes:
+          - redmine-files:/usr/src/redmine/files
+      tags: deploy
+
+    - name: Check active swap
+      ansible.builtin.command: swapon --show=NAME --noheadings
+      register: active_swap
+      changed_when: false
+      tags: datadog
+
+    - name: Create swap file for Datadog Agent install
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ datadog_swap_size_mb }}M {{ datadog_swap_file }}"
+        creates: "{{ datadog_swap_file }}"
+      register: datadog_swap_created
+      tags: datadog
+
+    - name: Set swap file permissions
+      ansible.builtin.file:
+        path: "{{ datadog_swap_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      tags: datadog
+
+    - name: Format swap file
+      ansible.builtin.command: "mkswap {{ datadog_swap_file }}"
+      when: datadog_swap_created.changed
+      tags: datadog
+
+    - name: Enable swap file
+      ansible.builtin.command: "swapon {{ datadog_swap_file }}"
+      when: datadog_swap_file not in active_swap.stdout_lines
+      tags: datadog
+
+    - name: Persist swap file
+      ansible.posix.mount:
+        name: none
+        src: "{{ datadog_swap_file }}"
+        fstype: swap
+        opts: sw
+        state: present
+      tags: datadog
+
+    - name: Install Datadog Agent
+      ansible.builtin.import_role:
+        name: datadog.dd.agent
+      tags: datadog
