@@ -15,47 +15,6 @@ terraform {
   required_version = ">= 0.13"
 }
 
-// Terraform должен знать ключ, для выполнения команд по API
-
-// Определение переменной, которую нужно будет задать
-variable "do_token" {}
-
-variable "region" {
-  default = "fra1"
-}
-
-variable "droplet_size" {
-  default = "s-1vcpu-1gb"
-}
-
-variable "image" {
-  default = "ubuntu-22-04-x64"
-}
-
-variable "ssh_public_key_path" {
-  default = "~/.ssh/id_rsa.pub"
-}
-
-variable "trusted_ssh_sources" {
-  default = ["0.0.0.0/0", "::/0"]
-}
-
-variable "datadog_api_key" {
-  sensitive = true
-}
-
-variable "datadog_app_key" {
-  sensitive = true
-}
-
-variable "datadog_site" {
-  default = "datadoghq.eu"
-}
-
-variable "datadog_synthetics_location" {
-  default = "aws:eu-central-1"
-}
-
 locals {
   web_droplets = {
     web1 = "redmine-web-1"
