@@ -11,6 +11,9 @@ Terraform создает:
 - Datadog Synthetic test для проверки Redmine через Load Balancer
 - `inventory.ini` для Ansible в этой же папке
 
+Виртуальные машины создаются через локальный модуль `modules/vm`.
+Краткая документация по модулю лежит в [`modules/vm/README.md`](modules/vm/README.md).
+
 Ansible разворачивает:
 
 - PostgreSQL container на db-сервере

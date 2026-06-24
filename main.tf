@@ -43,28 +43,30 @@ resource "digitalocean_vpc" "default" {
   ip_range = "10.10.0.0/16"
 }
 
-resource "digitalocean_droplet" "web" {
+module "web" {
+  source = "./modules/vm"
+
   for_each = local.web_droplets
 
-  image      = var.image
-  name       = each.value
-  region     = var.region
-  size       = var.droplet_size
-  monitoring = true
-  vpc_uuid   = digitalocean_vpc.default.id
+  name         = each.value
+  image        = var.image
+  region       = var.region
+  droplet_size = var.droplet_size
+  vpc_uuid     = digitalocean_vpc.default.id
 
   ssh_keys = [
     digitalocean_ssh_key.default.fingerprint
   ]
 }
 
-resource "digitalocean_droplet" "db" {
-  image      = var.image
-  name       = "redmine-db-1"
-  region     = var.region
-  size       = var.droplet_size
-  monitoring = true
-  vpc_uuid   = digitalocean_vpc.default.id
+module "db" {
+  source = "./modules/vm"
+
+  name         = "redmine-db-1"
+  image        = var.image
+  region       = var.region
+  droplet_size = var.droplet_size
+  vpc_uuid     = digitalocean_vpc.default.id
 
   ssh_keys = [
     digitalocean_ssh_key.default.fingerprint
@@ -77,7 +79,7 @@ resource "digitalocean_loadbalancer" "web" {
   vpc_uuid = digitalocean_vpc.default.id
 
   droplet_ids = [
-    for droplet in digitalocean_droplet.web : droplet.id
+    for droplet in module.web : droplet.id
   ]
 
   forwarding_rule {
@@ -142,7 +144,7 @@ resource "digitalocean_firewall" "web" {
   name = "redmine-web-firewall"
 
   droplet_ids = [
-    for droplet in digitalocean_droplet.web : droplet.id
+    for droplet in module.web : droplet.id
   ]
 
   inbound_rule {
@@ -182,7 +184,7 @@ resource "digitalocean_firewall" "web" {
 
 resource "digitalocean_firewall" "db" {
   name        = "redmine-db-firewall"
-  droplet_ids = [digitalocean_droplet.db.id]
+  droplet_ids = [module.db.id]
 
   inbound_rule {
     protocol         = "tcp"
@@ -193,7 +195,7 @@ resource "digitalocean_firewall" "db" {
   inbound_rule {
     protocol           = "tcp"
     port_range         = "5432"
-    source_droplet_ids = [for droplet in digitalocean_droplet.web : droplet.id]
+    source_droplet_ids = [for droplet in module.web : droplet.id]
   }
 
   inbound_rule {
@@ -225,12 +227,12 @@ resource "local_file" "ansible_inventory" {
 
   content = <<-EOF
 [webservers]
-%{for name, droplet in digitalocean_droplet.web~}
+%{for name, droplet in module.web~}
 ${name} ansible_host=${droplet.ipv4_address} ansible_host_private=${droplet.ipv4_address_private} ansible_user=app
 %{endfor~}
 
 [dbservers]
-db1 ansible_host=${digitalocean_droplet.db.ipv4_address} ansible_host_private=${digitalocean_droplet.db.ipv4_address_private} ansible_user=app
+db1 ansible_host=${module.db.ipv4_address} ansible_host_private=${module.db.ipv4_address_private} ansible_user=app
 
 [servers:children]
 webservers
@@ -244,12 +246,12 @@ output "load_balancer_ip" {
 
 output "web_public_ips" {
   value = {
-    for name, droplet in digitalocean_droplet.web : name => droplet.ipv4_address
+    for name, droplet in module.web : name => droplet.ipv4_address
   }
 }
 
 output "db_public_ip" {
-  value = digitalocean_droplet.db.ipv4_address
+  value = module.db.ipv4_address
 }
 
 output "ansible_inventory_path" {
